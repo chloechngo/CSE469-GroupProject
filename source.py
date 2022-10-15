@@ -6,6 +6,7 @@ import hashlib
 import os
 import struct
 from datetime import datetime
+import uuid
 
 
 class BlockChain:
@@ -35,7 +36,7 @@ class BlockChain:
     }
 
     # Constructor Function
-    def __init__(self, prev_hash="", timestamp=0.0, case_id="", item_id=0, state=states['INITIAL'], data_length=0,
+    def __init__(self, prev_hash="", timestamp=0.0, case_id=b'', item_id=0, state=states['INITIAL'], data_length=0,
                  data=""):
         self.__prev_hash = prev_hash
         self.__timestamp = timestamp
@@ -50,7 +51,7 @@ class BlockChain:
         return struct.pack("32s d 16s I 12s I " + str(self.__data_length) + "s",
                            self.__prev_hash.encode('utf-8'),
                            self.__timestamp,
-                           self.__case_id.encode('utf-8'),
+                           self.__case_id,
                            self.__item_id,
                            self.__state,
                            self.__data_length,
@@ -58,6 +59,10 @@ class BlockChain:
 
 
 def init(blckch_file):
+    """
+    :param blckch_file: the blockchain file pointer for reading and writing
+    :return: 0 for success, 1 otherwise
+    """
     # Read the BlockChain File
     blckch = blckch_file.read()
 
@@ -89,21 +94,29 @@ def init(blckch_file):
             exit(1)  # Failure
 
 
-def add(blckch_file, case_id='', item_id=None):
+def add(blckch_file, case_id, item_id):
+    """
+    :param blckch_file: the blockchain file pointer for reading, writing
+    :param case_id: the case identifier that the evidence is associated with
+    :param item_id: the evidence item’s identifier
+    :return: 0, if the evidence is successfully added, 1 otherwise
+    """
+
     # Read the Blockchain file
     blckch = blckch_file.read()
 
     # Get the action time
     action_time = datetime.now().timestamp()
 
-    ind = 0
+    index = 0
     last_index = len(blckch)
 
     print(f"Case: {case_id}")
+    case_id = uuid.UUID(case_id)
 
     current_hash = ''
-    while ind < last_index:
-        block_header = blckch[ind: ind + 76]
+    while index < last_index:
+        block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 
         # Check whether an item id already exists
@@ -111,16 +124,16 @@ def add(blckch_file, case_id='', item_id=None):
             print(f"Evidence item with item_id {item_id} already exists")
             exit(1)
 
-        block_data = struct.unpack(str(data_len) + "s", blckch[ind + 76:ind + 76 + data_len])[0]
+        block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
         current_hash = hashlib.sha256(block)
-        ind += len(block)
+        index += len(block)
 
     new_block = BlockChain(
         prev_hash=current_hash.hexdigest(),
         timestamp=action_time,
-        case_id=case_id,
+        case_id=case_id.bytes,
         item_id=item_id,
         state=BlockChain.states['CHECKEDIN']
     )
@@ -135,6 +148,70 @@ def add(blckch_file, case_id='', item_id=None):
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
 
 
+def checkout(blckch_file, item_id):
+    """
+    :param blckch_file: the blockchain file pointer for reading, writing
+    :param item_id: the evidence item’s identifier
+    :return: 0, if the evidence is successfully checkedout,
+             1, if the evidence is not checked in, checkout cannot be performed
+             2, if the evidence does not exist
+    """
+
+    # Read the Blockchain file
+    blckch = blckch_file.read()
+
+    # Get the action time
+    action_time = datetime.now().timestamp()
+
+    index = 0
+    last_index = len(blckch)
+
+    exists_flag = False
+
+    current_hash = ''
+    case_id = ''
+
+    while index < last_index:
+        block_header = blckch[index: index + 76]
+        prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+
+        if item_id == e_id:
+            if state == BlockChain.states['CHECKEDOUT']:
+                print("Error: Cannot check out a checked out item. Must check it in first.")
+                exit(1)
+            elif state == BlockChain.states['CHECKEDIN']:
+                exists_flag = True
+                case_id = c_id
+
+        block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
+        block = block_header + block_data
+
+        current_hash = hashlib.sha256(block)
+        index += len(block)
+
+    if not exists_flag:
+        print("Error: No matching item")
+        exit(2)
+
+    new_block = BlockChain(
+        prev_hash=current_hash.hexdigest(),
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states['CHECKEDOUT']
+    )
+    new_block_bin = new_block.get_binary_data()
+
+    blckch_file.seek(0, 2)
+    blckch_file.write(new_block_bin)
+
+    # Print the status message
+    print(f"Case: {uuid.UUID(case_id.hex())}")
+    print(f"Checked out item: {item_id}")
+    print("\tStatus: CHECKEDOUT")
+    print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+
+
 if __name__ == "__main__":
 
     # Get the Blockchain File Path
@@ -145,4 +222,5 @@ if __name__ == "__main__":
     # Open the Blockchain File and Read the content
     with open(file_path, "rb+") as blockchain_file:
         # init(blockchain_file)
-        add(blockchain_file, "65cc391d-6568-4dcc-a3f1-86a2f04140f3", 123456789)
+        # add(blockchain_file, "65cc391d-6568-4dcc-a3f1-86a2f04140f3", 987654321)
+        checkout(blockchain_file, 987654321)
