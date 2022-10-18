@@ -169,26 +169,23 @@ def checkout(blckch_file, item_id):
     exists_flag = False
     checkedin = False
 
-    current_hash = ''
-    case_id = ''
-
     while index < last_index:
         block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 
         if item_id == e_id:
+            exists_flag = True
             if state == BlockChain.states['CHECKEDOUT']:
                 checkedin = False
 
             elif state == BlockChain.states['CHECKEDIN']:
                 checkedin = True
-                exists_flag = True
-                case_id = c_id
+
+            break
 
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
-        current_hash = hashlib.sha256(block)
         index += len(block)
 
     if not exists_flag:
@@ -199,20 +196,23 @@ def checkout(blckch_file, item_id):
         print("Error: Cannot check out a checked out item. Must check it in first.")
         exit(1)
 
-    new_block = BlockChain(
-        prev_hash=current_hash.hexdigest(),
-        timestamp=action_time,
-        case_id=case_id,
-        item_id=item_id,
-        state=BlockChain.states['CHECKEDOUT']
-    )
-    new_block_bin = new_block.get_binary_data()
+    block_header = blckch[index: index + 76]
+    prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 
-    blckch_file.seek(0, 2)
-    blckch_file.write(new_block_bin)
+    # Move the file pointer to the beginning of the block
+    blckch_file.seek(index, 0)
+
+    # Update the timestamp
+    blckch_file.seek(32, 1)  # Offset 32
+    blckch_file.write(struct.pack("d", action_time))
+
+    # Update the state
+    blckch_file.seek(index, 0)
+    blckch_file.seek(60, 1)  # Offset 60
+    blckch_file.write(BlockChain.states['CHECKEDOUT'])
 
     # Print the status message
-    print(f"Case: {uuid.UUID(case_id.hex())}")
+    print(f"Case: {uuid.UUID(c_id.hex())}")
     print(f"Checked out item: {item_id}")
     print("\tStatus: CHECKEDOUT")
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
@@ -237,9 +237,6 @@ def checkin(blckch_file, item_id):
 
     exists_flag = False
 
-    current_hash = ''
-    case_id = ''
-
     while index < last_index:
         block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
@@ -247,34 +244,34 @@ def checkin(blckch_file, item_id):
         if item_id == e_id:
             if state == BlockChain.states['CHECKEDOUT']:
                 exists_flag = True
-                case_id = c_id
-            else:
-                exists_flag = False
+            break
 
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
-        current_hash = hashlib.sha256(block)
         index += len(block)
 
     if not exists_flag:
         print("Error: No matching item")
         exit(1)
 
-    new_block = BlockChain(
-        prev_hash=current_hash.hexdigest(),
-        timestamp=action_time,
-        case_id=case_id,
-        item_id=item_id,
-        state=BlockChain.states['CHECKEDIN']
-    )
-    new_block_bin = new_block.get_binary_data()
+    block_header = blckch[index: index + 76]
+    prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 
-    blckch_file.seek(0, 2)
-    blckch_file.write(new_block_bin)
+    # Move the file pointer to the beginning of the block
+    blckch_file.seek(index, 0)
+
+    # Update the timestamp
+    blckch_file.seek(32, 1)  # Offset 32
+    blckch_file.write(struct.pack("d", action_time))
+
+    # Update the state
+    blckch_file.seek(index, 0)
+    blckch_file.seek(60, 1)  # Offset 60
+    blckch_file.write(BlockChain.states['CHECKEDIN'])
 
     # Print the status message
-    print(f"Case: {uuid.UUID(case_id.hex())}")
+    print(f"Case: {uuid.UUID(c_id.hex())}")
     print(f"Checked in item: {item_id}")
     print("\tStatus: CHECKEDIN")
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
@@ -302,11 +299,11 @@ def parse(arg, blckch_file):
             add(blckch_file, case_id, item_id)
 
     elif cmd == "checkout":
-        item_id = params[-1]
+        item_id = int(params[-1])
         checkout(blckch_file, item_id)
 
     elif cmd == "checkin":
-        item_id = params[-1]
+        item_id = int(params[-1])
         checkin(blckch_file, item_id)
 
 
