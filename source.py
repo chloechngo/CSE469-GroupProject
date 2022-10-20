@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # CSE 469
 # Group Project: Blockchain Chain of Custody
 # Team Number: 3
@@ -8,6 +8,7 @@ import struct
 import sys
 from datetime import datetime
 import uuid
+from pathlib import Path
 
 
 class BlockChain:
@@ -112,12 +113,16 @@ def add(blckch_file, case_id, item_id):
     index = 0
     last_index = len(blckch)
 
+    print(index, last_index)
     case_id = uuid.UUID(case_id)
 
-    current_hash = ''
+    # current_hash = ''.encode('utf-8')
     while index < last_index:
+
         block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+
+        print(e_id, item_id)
 
         # Check whether an item id already exists
         if item_id == e_id:
@@ -127,13 +132,13 @@ def add(blckch_file, case_id, item_id):
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
-        current_hash = hashlib.sha256(block)
+        # current_hash = block
         index += len(block)
 
     new_block = BlockChain(
-        prev_hash=current_hash.hexdigest(),
+        # prev_hash=hashlib.sha256(current_hash).hexdigest(),
         timestamp=action_time,
-        case_id=case_id.bytes,
+        case_id=case_id.bytes[::-1],  # To convert it to Little Endian
         item_id=item_id,
         state=BlockChain.states['CHECKEDIN']
     )
@@ -169,23 +174,26 @@ def checkout(blckch_file, item_id):
     exists_flag = False
     checkedin = False
 
+    current_hash = ''
+    case_id = ''
+
     while index < last_index:
         block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 
         if item_id == e_id:
-            exists_flag = True
-            if state == BlockChain.states['CHECKEDOUT']:
+            if state != BlockChain.states['CHECKEDIN']:
                 checkedin = False
 
             elif state == BlockChain.states['CHECKEDIN']:
                 checkedin = True
-
-            break
+                exists_flag = True
+                case_id = c_id
 
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
+        current_hash = hashlib.sha256(block)
         index += len(block)
 
     if not exists_flag:
@@ -196,23 +204,20 @@ def checkout(blckch_file, item_id):
         print("Error: Cannot check out a checked out item. Must check it in first.")
         exit(1)
 
-    block_header = blckch[index: index + 76]
-    prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+    new_block = BlockChain(
+        prev_hash=current_hash.hexdigest(),
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states['CHECKEDOUT']
+    )
+    new_block_bin = new_block.get_binary_data()
 
-    # Move the file pointer to the beginning of the block
-    blckch_file.seek(index, 0)
-
-    # Update the timestamp
-    blckch_file.seek(32, 1)  # Offset 32
-    blckch_file.write(struct.pack("d", action_time))
-
-    # Update the state
-    blckch_file.seek(index, 0)
-    blckch_file.seek(60, 1)  # Offset 60
-    blckch_file.write(BlockChain.states['CHECKEDOUT'])
+    blckch_file.seek(0, 2)
+    blckch_file.write(new_block_bin)
 
     # Print the status message
-    print(f"Case: {uuid.UUID(c_id.hex())}")
+    print(f"Case: {uuid.UUID(case_id.hex())}")
     print(f"Checked out item: {item_id}")
     print("\tStatus: CHECKEDOUT")
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
@@ -237,6 +242,9 @@ def checkin(blckch_file, item_id):
 
     exists_flag = False
 
+    current_hash = ''
+    case_id = ''
+
     while index < last_index:
         block_header = blckch[index: index + 76]
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
@@ -244,34 +252,34 @@ def checkin(blckch_file, item_id):
         if item_id == e_id:
             if state == BlockChain.states['CHECKEDOUT']:
                 exists_flag = True
-            break
+                case_id = c_id
+            else:
+                exists_flag = False
 
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
+        current_hash = hashlib.sha256(block)
         index += len(block)
 
     if not exists_flag:
         print("Error: No matching item")
         exit(1)
 
-    block_header = blckch[index: index + 76]
-    prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+    new_block = BlockChain(
+        prev_hash=current_hash.hexdigest(),
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states['CHECKEDIN']
+    )
+    new_block_bin = new_block.get_binary_data()
 
-    # Move the file pointer to the beginning of the block
-    blckch_file.seek(index, 0)
-
-    # Update the timestamp
-    blckch_file.seek(32, 1)  # Offset 32
-    blckch_file.write(struct.pack("d", action_time))
-
-    # Update the state
-    blckch_file.seek(index, 0)
-    blckch_file.seek(60, 1)  # Offset 60
-    blckch_file.write(BlockChain.states['CHECKEDIN'])
+    blckch_file.seek(0, 2)
+    blckch_file.write(new_block_bin)
 
     # Print the status message
-    print(f"Case: {uuid.UUID(c_id.hex())}")
+    print(f"Case: {uuid.UUID(case_id.hex())}")
     print(f"Checked in item: {item_id}")
     print("\tStatus: CHECKEDIN")
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
@@ -287,11 +295,24 @@ def parse(arg, blckch_file):
     params = arg[1:]
 
     if cmd == "init":
+        # init with additional parameters must cause error
+        if len(params) > 0:
+            exit(1)
         init(blckch_file)
 
     elif cmd == "add":
-        print(params)
         case_id = params[1]
+
+        # if there is either/both the case id or/and at least one item id is mission
+        if len(params) < 4:
+            exit(1)
+
+        # Perform init to check whether add was called before init
+        init(blckch_file)
+
+        # Bring the file pointer to the beginning
+        blckch_file.seek(0)
+
         print(f"Case: {case_id}")
 
         for index in range(3, len(params), 2):
@@ -313,6 +334,9 @@ if __name__ == "__main__":
     file_path = os.getenv("BCHOC_FILE_PATH")
     if file_path is None:
         file_path = os.path.join(os.getcwd(), "blockchain.bin")
+
+    # Create the blockchain file if it doesn't exist
+    Path(file_path).touch(exist_ok=True)
 
     # Open the Blockchain File and Read the content
     with open(file_path, "rb+") as blockchain_file:
