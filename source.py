@@ -158,8 +158,8 @@ def checkout(blckch_file, item_id):
     :param blckch_file: the blockchain file pointer for reading, writing
     :param item_id: the evidence item’s identifier
     :return: 0, if the evidence is successfully checkedout,
-             1, if the evidence is not checked in, checkout cannot be performed
-             2, if the evidence does not exist
+                1, if the evidence is not checked in, checkout cannot be performed
+                2, if the evidence does not exist
     """
 
     # Read the Blockchain file
@@ -189,7 +189,7 @@ def checkout(blckch_file, item_id):
                 checkedin = True
                 exists_flag = True
                 case_id = c_id
-
+                
         block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
         block = block_header + block_data
 
@@ -228,7 +228,7 @@ def checkin(blckch_file, item_id):
     :param blckch_file: the blockchain file pointer for reading, writing
     :param item_id: the evidence item’s identifier
     :return: 0, if the evidence is successfully checkedin,
-             1, if the evidence does not exist
+                1, if the evidence does not exist
     """
 
     # Read the Blockchain file
@@ -284,6 +284,88 @@ def checkin(blckch_file, item_id):
     print("\tStatus: CHECKEDIN")
     print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
 
+def remove(blckch_file, item_id, reason, owner):
+    """
+    :param blckch_file: the blockchain file pointer for reading, writing
+    :param item_id: the evidence item’s identifier
+    :param owner: info about the lawful owner
+    :return: 0, if the evidence is successfully removed, 
+		    1, if the evidence is not checked in, remove cannot be performed
+            	    2, if the evidence does not exist
+		    3, if owner info is not given
+    """
+    # Read the Blockchain file
+    blckch = blckch_file.read()
+
+    # Get the action time
+    action_time = datetime.now().timestamp()
+
+    index = 0
+    last_index = len(blckch)
+    
+    exists_flag = False
+    checkedin = False
+
+    current_hash = ''
+    case_id = ''
+
+    #The item must be CHECKEDIN
+    while index < last_index:
+        block_header = blckch[index: index + 76]
+        prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+        if item_id == e_id:
+            
+            if state != BlockChain.states['CHECKEDIN']:
+                checkedin = False
+
+            elif state == BlockChain.states['CHECKEDIN']:
+                print("TRUE: index ", index)
+                checkedin = True
+                exists_flag = True
+                case_id = c_id
+
+        
+        block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
+        block = block_header + block_data
+
+        current_hash = hashlib.sha256(block)
+        index += len(block)
+
+    if not exists_flag:
+        print("Error: No matching item")
+        exit(2)
+
+    if not checkedin:
+        print("Error: Cannot remove an item. Must check it in first.")
+        exit(1)
+
+    new_block = BlockChain(
+        prev_hash=current_hash.hexdigest(),
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states[reason]
+    )
+    new_block_bin = new_block.get_binary_data()
+
+    blckch_file.seek(0, 2)
+    blckch_file.write(new_block_bin)
+
+	#Reason must be one of: DISPOSED, DESTROYED, or RELEASED. If the reason given is RELEASED, -o must also be given.
+    if (reason == "DISPOSED") or (reason == "DESTROYED"):
+        # Print the status message
+        print(f"Case: {uuid.UUID(case_id.hex())}")
+        print(f"Removed item: {item_id}")
+        print(f"\tStatus: {reason}")
+        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+       
+    elif reason == BlockChain.states['RELEASED']:
+            # Print the status message
+            print(f"Case: {uuid.UUID(case_id.hex())}")
+            print(f"Removed item: {item_id}")
+            print(f"\tStatus: {BlockChain.states['RELEASED']}")
+            print(f"\tOwner info: {owner}")
+            print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
 
 def parse(arg, blckch_file):
     """
@@ -326,94 +408,27 @@ def parse(arg, blckch_file):
     elif cmd == "checkin":
         item_id = int(params[-1])
         checkin(blckch_file, item_id)
-
-
-def remove(blckch_file, item_id, reason, owner):
-    """
-    :param blckch_file: the blockchain file pointer for reading, writing
-    :param item_id: the evidence item’s identifier
-    :param owner: info about the lawful owner
-    :return: 0, if the evidence is successfully removed, 
-		 1, if the evidence is not checked in, remove cannot be performed
-             2, if the evidence does not exist
-		 3, if owner info is not given
-    """
-    # Read the Blockchain file
-    blckch = blckch_file.read()
-
-    # Get the action time
-    action_time = datetime.now().timestamp()
-
-    index = 0
-    last_index = len(blckch)
-    
-    exists_flag = False
-    checkedin = False
-
-    current_hash = ''
-    case_id = ''
-
-    #The item must be CHECKEDIN
-
-    while index < last_index:
-        block_header = blckch[index: index + 76]
-        prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
 	
-        #Check if the item is checked in
-        if item_id == e_id:
-            if state == BlockChain.states['CHECKEDIN']:
-                checkedin = True
-                exists_flag = True
-                case_id = c_id
-
-        block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
-        block = block_header + block_data
-
-        current_hash = hashlib.sha256(block)
-        index += len(block)
-
-    if not exists_flag:
-        print("Error: No matching item")
-        exit(2)
-
-    if not checkedin:
-        print("Error: Cannot remove an item. Must check it in first.")
-        exit(1)
-
-    new_block = BlockChain(
-        prev_hash=current_hash.hexdigest(),
-        timestamp=action_time,
-        case_id=case_id,
-        item_id=item_id,
-        state=BlockChain.states[reason]
-    )
-    new_block_bin = new_block.get_binary_data()
-
-    blckch_file.seek(0, 2)
-    blckch_file.write(new_block_bin)
-
-	#Reason must be one of: DISPOSED, DESTROYED, or RELEASED. If the reason given #is RELEASED, -o must also be given.
-    if (reason == BlockChain.states['DISPOSED']) or (reason == BlockChain.states['DESTROYED']):
-        # Print the status message
-        print(f"Case: {uuid.UUID(case_id.hex())}")
-        print(f"Removed item: {item_id}")
-        print(f"\tStatus: {reason}")
-        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
-       
-    elif state == BlockChain.states['RELEASED']:
-        if owner == '':
-            print("Error: Owner info is not given")
-            exit(2)
-        else:
-            # Print the status message
-            print(f"Case: {uuid.UUID(case_id.hex())}")
-            print(f"Removed item: {item_id}")
-            print(f"\tStatus: {BlockChain.states['RELEASED']}")
-            print(f"\tOwner info: {owner}")
-            print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
-    else:
-        exit(2)
-
+    elif cmd == "remove":
+	    item_id = int(params[1])
+	    reason = params[3]
+	    owner = ''
+	           
+	    if reason == "RELEASED":
+		    #if the owner info isn't given
+		    if len(params) == 4:
+			    print("ERROR: Owner info is not given")
+			    exit(1)
+		    else:
+			    owner = params[-1]
+	    elif reason == "DESTROYED" or reason == "DISPOSED":
+		    owner = ''
+	    else:
+		    print("ERROR: Invalid reason")
+		    exit(1)
+		
+	    #calling the function
+	    remove(blckch_file, item_id, reason, owner)
 
 if __name__ == "__main__":
 
