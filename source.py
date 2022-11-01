@@ -319,7 +319,6 @@ def remove(blckch_file, item_id, reason, owner):
                 checkedin = False
 
             elif state == BlockChain.states['CHECKEDIN']:
-                print("TRUE: index ", index)
                 checkedin = True
                 exists_flag = True
                 case_id = c_id
@@ -339,33 +338,45 @@ def remove(blckch_file, item_id, reason, owner):
         print("Error: Cannot remove an item. Must check it in first.")
         exit(1)
 
-    new_block = BlockChain(
-        prev_hash=current_hash.hexdigest(),
-        timestamp=action_time,
-        case_id=case_id,
-        item_id=item_id,
-        state=BlockChain.states[reason]
-    )
-    new_block_bin = new_block.get_binary_data()
-
-    blckch_file.seek(0, 2)
-    blckch_file.write(new_block_bin)
+    #initialize new_block
+    new_block = BlockChain(timestamp=action_time,case_id=case_id,item_id=item_id,state=BlockChain.states[reason],data_length=0,data='')
 
 	#Reason must be one of: DISPOSED, DESTROYED, or RELEASED. If the reason given is RELEASED, -o must also be given.
     if (reason == "DISPOSED") or (reason == "DESTROYED"):
+        new_block = BlockChain(
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states[reason],
+        data_length=len(owner),
+        data=owner.rstrip('\x00')
+        )
+
         # Print the status message
         print(f"Case: {uuid.UUID(case_id.hex())}")
         print(f"Removed item: {item_id}")
         print(f"\tStatus: {reason}")
         print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
        
-    elif reason == BlockChain.states['RELEASED']:
-            # Print the status message
-            print(f"Case: {uuid.UUID(case_id.hex())}")
-            print(f"Removed item: {item_id}")
-            print(f"\tStatus: {BlockChain.states['RELEASED']}")
-            print(f"\tOwner info: {owner}")
-            print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+    elif reason == "RELEASED":
+        new_block = BlockChain(
+        timestamp=action_time,
+        case_id=case_id,
+        item_id=item_id,
+        state=BlockChain.states[reason],
+        data_length=len(owner)+1,
+        data=owner
+        )
+        # Print the status message
+        print(f"Case: {uuid.UUID(case_id.hex())}")
+        print(f"Removed item: {item_id}")
+        print(f"\tStatus: {BlockChain.states['RELEASED']}")
+        print(f"\tOwner info: {owner}")
+        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+
+    new_block_bin = new_block.get_binary_data()
+    blckch_file.seek(0, 2)
+    blckch_file.write(new_block_bin)
 
 def parse(arg, blckch_file):
     """
