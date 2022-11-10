@@ -2,6 +2,7 @@
 # CSE 469
 # Group Project: Blockchain Chain of Custody
 # Team Number: 3
+
 import hashlib
 import os
 import struct
@@ -9,6 +10,7 @@ import sys
 from datetime import datetime
 import uuid
 from pathlib import Path
+import maya
 
 
 class BlockChain:
@@ -25,6 +27,7 @@ class BlockChain:
         Offset 76 - Data - 0 to 2^32 bytes
 
     Member Methods:
+        get_binary_data - Packs the members of a Blockchain object into binary
     """
 
     # Encoded Possible Block States
@@ -71,7 +74,7 @@ def init(blckch_file):
     # If the Initial Block does not exist
     if len(blckch) == 0:
         # Create the initial block
-        timestamp = datetime.now().timestamp()
+        timestamp = maya.now()._epoch
         state = BlockChain.states["INITIAL"]
         data_length = 14
         data = "Initial block"
@@ -108,7 +111,7 @@ def add(blckch_file, case_id, item_id):
     blckch = blckch_file.read()
 
     # Get the action time
-    action_time = datetime.now().timestamp()
+    action_time = maya.now()._epoch
 
     index = 0
     last_index = len(blckch)
@@ -147,7 +150,7 @@ def add(blckch_file, case_id, item_id):
     # Print the status message
     print(f"Added item: {item_id}")
     print("\tStatus: CHECKEDIN")
-    print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+    print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
 
 def checkout(blckch_file, item_id):
@@ -163,7 +166,7 @@ def checkout(blckch_file, item_id):
     blckch = blckch_file.read()
 
     # Get the action time
-    action_time = datetime.now().timestamp()
+    action_time = maya.now()._epoch
 
     index = 0
     last_index = len(blckch)
@@ -217,7 +220,7 @@ def checkout(blckch_file, item_id):
     print(f"Case: {uuid.UUID(case_id.hex())}")
     print(f"Checked out item: {item_id}")
     print("\tStatus: CHECKEDOUT")
-    print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+    print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
 
 def checkin(blckch_file, item_id):
@@ -232,7 +235,7 @@ def checkin(blckch_file, item_id):
     blckch = blckch_file.read()
 
     # Get the action time
-    action_time = datetime.now().timestamp()
+    action_time = maya.now()._epoch
 
     index = 0
     last_index = len(blckch)
@@ -279,7 +282,7 @@ def checkin(blckch_file, item_id):
     print(f"Case: {uuid.UUID(case_id.hex())}")
     print(f"Checked in item: {item_id}")
     print("\tStatus: CHECKEDIN")
-    print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+    print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
 
 def remove(blckch_file, item_id, reason, owner):
@@ -297,7 +300,7 @@ def remove(blckch_file, item_id, reason, owner):
     blckch = blckch_file.read()
 
     # Get the action time
-    action_time = datetime.now().timestamp()
+    action_time = maya.now()._epoch
 
     index = 0
     last_index = len(blckch)
@@ -355,7 +358,7 @@ def remove(blckch_file, item_id, reason, owner):
         print(f"Case: {uuid.UUID(case_id.hex())}")
         print(f"Removed item: {item_id}")
         print(f"\tStatus: {reason}")
-        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+        print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
     elif reason == "RELEASED":
         new_block = BlockChain(
@@ -371,7 +374,7 @@ def remove(blckch_file, item_id, reason, owner):
         print(f"Removed item: {item_id}")
         print(f"\tStatus: {BlockChain.states['RELEASED']}")
         print(f"\tOwner info: {owner}")
-        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+        print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
     else:
         new_block = BlockChain(
@@ -385,7 +388,7 @@ def remove(blckch_file, item_id, reason, owner):
         print(f"Case: {uuid.UUID(case_id.hex())}")
         print(f"Removed item: {item_id}")
         print(f"\tStatus: {reason}")
-        print(f"\tTime of action: {datetime.fromtimestamp(action_time)}")
+        print(f"\tTime of action: {maya.parse(datetime.fromtimestamp(action_time)).iso8601()}")
 
     new_block_bin = new_block.get_binary_data()
     blckch_file.seek(0, 2)
@@ -410,8 +413,6 @@ def verify(blckch_file):
     evidenceStates = {}
     hashValues = []
 
-    last_hash = struct.pack("32s", ''.encode('utf-8'))
-
     while index < last_index:
 
         numBlocks += 1
@@ -424,15 +425,6 @@ def verify(blckch_file):
             exit(1)
 
         prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
-
-        # TODO
-        # Mismatch Hash
-        # if prev_hash != last_hash:
-        #     print(numBlocks)
-        #     print(prev_hash)
-        #     print(last_hash)
-        #     print("Error: Checksum Mismatch")
-        #     exit(1)
 
         # Missing Initial Block
         if numBlocks == 1 and state != BlockChain.states["INITIAL"]:
@@ -500,11 +492,86 @@ def verify(blckch_file):
         # current_hash = block
         index += len(block)
 
-    print(hashValues)
-
     # Print the status message
     print(f"Transactions in blockchain: {numBlocks}")
     print("State of blockchain: CLEAN")
+
+
+def log(blckch_file, case_id='', item_id=-1, reverse=False, num_entries=-1):
+    """
+
+    :param blckch_file: the blockchain file for reading purpose
+    :param case_id: the optional case id
+    :param item_id: the optional item id
+    :param reverse: the reverse flag, if true the records will be printed end to beginning
+    :param num_entries: optional number of entries
+    :return:
+    """
+
+    def printBlock(blck):
+        """
+        A function to print the log entry
+        :param blck: {timestamp, case_id, item_id, state}
+        """
+        time, case, item, action = blck
+
+        print(f"Case: {uuid.UUID(case[::-1].hex())}")
+        print(f"Item: {item}")
+        print(f"Action: {list(BlockChain.states.keys())[list(BlockChain.states.values()).index(action)]}")
+        print(f"Time: {maya.parse(datetime.fromtimestamp(time)).iso8601()}")
+        print()
+
+    # Read the Blockchain file
+    blckch = blckch_file.read()
+
+    index = 0
+    last_index = len(blckch)
+
+    blocks = []
+
+    while index < last_index:
+        block_header = blckch[index: index + 76]
+        prev_hash, timestamp, c_id, e_id, state, data_len = struct.unpack("32s d 16s I 12s I", block_header)
+
+        # If neither Case ID nor Item ID is given
+        if case_id == '' and item_id == -1:
+            blocks.append((timestamp, c_id, e_id, state))
+
+        # If Case ID is not given, but Item ID is given
+        elif case_id == '':
+
+            # If Item ID matches with the current item id, or Item ID is not given
+            if e_id == item_id or item_id == -1:
+                blocks.append((timestamp, c_id, e_id, state))
+
+        # If both Case ID, Item ID are given
+        else:
+            # If Case ID matches current case id
+            if uuid.UUID(case_id).bytes[::-1] == c_id:
+
+                # If Item ID matches with the current item id, or Item ID is not given
+                if e_id == item_id or item_id == -1:
+                    blocks.append((timestamp, c_id, e_id, state))
+
+        block_data = struct.unpack(str(data_len) + "s", blckch[index + 76:index + 76 + data_len])[0]
+        block = block_header + block_data
+
+        index += len(block)
+
+    # If reverse flag is True
+    if reverse:
+        blocks.reverse()
+
+    # If num_entries not provided
+    if num_entries == -1:
+        num_entries = len(blocks)
+
+    index = 0
+
+    # Print the log entries
+    while index < num_entries and index < len(blocks):
+        printBlock(blocks[index])
+        index += 1
 
 
 def parse(arg, blckch_file):
@@ -572,6 +639,24 @@ def parse(arg, blckch_file):
 
     elif cmd == "verify":
         verify(blckch_file)
+
+    elif cmd == "log":
+        num_entries = -1
+        case_id = ''
+        item_id = -1
+        reverse = False
+
+        for index in range(len(params)):
+            if params[index] == "-r" or params[index] == "--reverse":
+                reverse = True
+            elif params[index] == "-n":
+                num_entries = int(params[index + 1])
+            elif params[index] == "-c":
+                case_id = params[index + 1]
+            elif params[index] == "-i":
+                item_id = int(params[index + 1])
+
+        log(blckch_file, case_id, item_id, reverse, num_entries)
 
 
 if __name__ == "__main__":
